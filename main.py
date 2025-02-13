@@ -37,30 +37,33 @@ class CommentExtractor:
         
         try:
             with zipfile.ZipFile(docx_path) as zip_ref:
-                # Read comments from word/comments.xml if it exists
                 try:
                     comments_xml = zip_ref.read('word/comments.xml')
                     root = ElementTree.fromstring(comments_xml)
                     
-                    # Read document.xml to get the comment anchors
                     document_xml = zip_ref.read('word/document.xml')
                     doc_root = ElementTree.fromstring(document_xml)
                     
-                    # Create a mapping of comment IDs to their ranges
+                    # Create a mapping of comment IDs to their ranges and text
                     comment_ranges = {}
-                    for elem in doc_root.findall('.//w:commentRangeStart', self.namespaces):
-                        comment_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                        comment_ranges[comment_id] = {
-                            'start': elem,
-                            'text': []
-                        }
                     
-                    # Find comment ends and collect text between start and end
+                    # First pass: find all comment ranges and their text
+                    current_range_id = None
+                    current_text = []
+                    
                     for elem in doc_root.iter():
-                        if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
-                            comment_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                            if comment_id in comment_ranges:
-                                comment_ranges[comment_id]['end'] = elem
+                        if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
+                            current_range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                            current_text = []
+                        elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
+                            range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                            if range_id == current_range_id:
+                                comment_ranges[current_range_id] = ''.join(current_text)
+                                current_range_id = None
+                                current_text = []
+                        elif current_range_id is not None and elem.tag == f'{{{self.namespaces["w"]}}}t':
+                            if elem.text:
+                                current_text.append(elem.text)
                     
                     # Process each comment
                     for comment in root.findall('.//w:comment', self.namespaces):
@@ -74,16 +77,18 @@ class CommentExtractor:
                             if p.text:
                                 comment_text.append(p.text)
                         
+                        highlighted_text = comment_ranges.get(comment_id, '')
+                        
                         comments.append({
                             'id': comment_id,
                             'author': author,
                             'date': date,
                             'comment_text': ' '.join(comment_text),
-                            'highlighted_text': ''  # Will be filled later
+                            'highlighted_text': highlighted_text
                         })
                 
-                except KeyError:
-                    # No comments in document
+                except KeyError as e:
+                    print(f"No comments found in document: {e}")
                     return []
                 
         except Exception as e:
@@ -97,34 +102,22 @@ class CommentExtractor:
         processed_comments = []
         raw_comments = self.extract_comments_from_docx(doc_path)
         
-        # Get the full document text to help with positioning
-        doc = Document(doc_path)
-        full_text = self.get_document_text(doc)
-        
         for comment in raw_comments:
-            # Try to find the commented text in the revised essay
-            # This is a simplified approach - in a real implementation,
-            # you might need more sophisticated text matching
-            paragraphs = [p.text for p in doc.paragraphs]
-            
-            for para in paragraphs:
-                if para.strip():
-                    # Look for this paragraph in the revised essay
-                    para_pos = revised_essay.find(para)
-                    if para_pos != -1:
-                        # Found the paragraph, now we can calculate relative positions
-                        start = para_pos
-                        end = start + len(para)
-                        
-                        processed_comments.append({
-                            "start": start,
-                            "end": end,
-                            "highlighted_text": para,
-                            "comment_text": comment['comment_text'],
-                            "author": comment['author'],
-                            "date": comment['date']
-                        })
-                        break
+            highlighted_text = comment['highlighted_text']
+            if highlighted_text:
+                # Find the position of the highlighted text in the revised essay
+                start = revised_essay.find(highlighted_text)
+                if start != -1:
+                    end = start + len(highlighted_text)
+                    
+                    processed_comments.append({
+                        "start": start,
+                        "end": end,
+                        "highlighted_text": highlighted_text,
+                        "comment_text": comment['comment_text'],
+                        "author": comment['author'],
+                        "date": comment['date']
+                    })
         
         return processed_comments
 
