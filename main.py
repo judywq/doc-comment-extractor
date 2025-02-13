@@ -11,7 +11,7 @@ from exception import StartTokenNotFound
 
 logger = logging.getLogger(__name__)
 
-DEBUG = True
+DEBUG = False
 
 @dataclass
 class Comment:
@@ -250,6 +250,99 @@ class CommentExtractor:
             logger.error("Error processing %s: %s", file_path, str(e))
             return result
 
+def json_to_html(json_data: Dict) -> str:
+    """Convert JSON data to HTML with styled comments."""
+    essay_text = json_data["revised_essay"]
+    comments = sorted(json_data["comments"], key=lambda x: x["start"])
+    
+    if not essay_text or not comments:
+        return ""
+    
+    # Build HTML with styles
+    html = """
+    <html>
+    <head>
+    <style>
+        body { 
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 200px auto;  /* Increased top margin */
+            padding: 0 20px;
+        }
+        .highlighted {
+            background-color: #fff3cd;
+            position: relative;
+            cursor: pointer;
+            display: inline-block;  /* Added to contain the tooltip */
+        }
+        .tooltip {
+            visibility: hidden;
+            background-color: #333;
+            color: white;
+            text-align: left;
+            padding: 8px;
+            border-radius: 4px;
+            position: absolute;
+            z-index: 1;
+            width: 200px;
+            font-size: 14px;
+            /* Adjusted positioning */
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            margin-bottom: 5px;  /* Added space between tooltip and text */
+        }
+        .highlighted:hover .tooltip {
+            visibility: visible;
+        }
+        /* Added arrow for tooltip */
+        .tooltip::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #333 transparent transparent transparent;
+        }
+    </style>
+    </head>
+    <body>
+    """
+    
+    # Process text and add comments
+    current_pos = 0
+    result_text = []
+    
+    def process_text(text: str) -> str:
+        """Convert newlines to <br> tags and escape HTML special characters."""
+        return text.replace('\n', '<br><br>')
+    
+    for comment in comments:
+        # Add text before the comment
+        result_text.append(process_text(essay_text[current_pos:comment["start"]]))
+        
+        # Add highlighted text with tooltip
+        highlighted = process_text(essay_text[comment["start"]:comment["end"]])
+        comment_text = process_text(comment["comment_text"])
+        result_text.append(
+            f'<span class="highlighted">{highlighted}'
+            f'<span class="tooltip">{comment_text}</span></span>'
+        )
+        
+        current_pos = comment["end"]
+    
+    # Add remaining text
+    result_text.append(process_text(essay_text[current_pos:]))
+    
+    # Join all text and close HTML tags
+    html += "".join(result_text)
+    html += "\n</body>\n</html>"
+    
+    return html
+
 def process_folder(input_folder: str, output_folder: str, start_token: str, end_token: str, 
                   include_author: bool = False, include_date: bool = False):
     """Process all Word documents in the input folder and save results to output folder."""
@@ -262,7 +355,8 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
     for idx, filename in enumerate(os.listdir(input_folder)):
         if filename.endswith('.docx'):
             input_path = os.path.join(input_folder, filename)
-            output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
+            json_output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
+            html_output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.html")
             logger.info("Processing %s", filename)
             
             result = extractor.process_document(input_path)
@@ -278,9 +372,17 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
             comments = result['comments']
             logger.info("There are %s comments in %s", len(comments), filename)
             if result:
-                with open(output_path, 'w', encoding='utf-8') as f:
+                # Save JSON output
+                with open(json_output_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f, ensure_ascii=False, indent=2)
-                logger.info("Processed %s -> %s", filename, output_path)
+                logger.info("Processed %s -> %s", filename, json_output_path)
+                
+                # Generate and save HTML output
+                html_content = json_to_html(result)
+                with open(html_output_path, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                logger.info("Generated HTML %s", html_output_path)
+                
         if DEBUG:
             break
 
