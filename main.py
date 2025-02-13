@@ -61,27 +61,68 @@ class CommentExtractor:
         except KeyError as e:
             raise ValueError(f"Required XML file not found in document: {e}")
 
-    def _extract_comment_ranges(self, doc_root) -> Dict[str, str]:
-        """Extract comment ranges and their corresponding text from document."""
+    def _extract_comment_ranges(self, doc_root, start_token: str, end_token: str) -> Dict[str, tuple[str, int]]:
+        """Extract comment ranges and their corresponding text from document with position info."""
         current_range_ids = []
-        comment_id_to_text = {}
+        comment_id_to_info = {}
+        text_position = 0
+        inside_target_text = False
+        
+        # Find all text elements to build the full text and track positions
+        full_text = []
+        for elem in doc_root.iter():
+            if elem.tag == f'{{{self.namespaces["w"]}}}t' and elem.text:
+                full_text.append(elem.text)
+        
+        # Find the token boundaries
+        full_text_str = ''.join(full_text)
+        try:
+            start_idx = full_text_str.index(start_token) + len(start_token)
+            end_idx = full_text_str.index(end_token, start_idx)
+        except ValueError:
+            logger.error("Could not find tokens in document")
+            return {}
+        
+        # Reset and process with token awareness
+        text_position = 0
+        current_text_pos = 0
         
         for elem in doc_root.iter():
-            if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
-                range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                current_range_ids.append(range_id)
-                comment_id_to_text[range_id] = []
-            elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
-                range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                if range_id in current_range_ids:
-                    comment_id_to_text[range_id] = ''.join(comment_id_to_text[range_id])
-                    current_range_ids.remove(range_id)
-            elif elem.tag == f'{{{self.namespaces["w"]}}}t':
-                if elem.text and len(current_range_ids) > 0:
-                    for range_id in current_range_ids:
-                        comment_id_to_text[range_id].append(elem.text)
+            if elem.tag == f'{{{self.namespaces["w"]}}}t' and elem.text:
+                current_text_pos += len(elem.text)
+                
+                # Check if we're entering the target text area
+                if current_text_pos > start_idx and not inside_target_text:
+                    inside_target_text = True
+                    text_position = 0
+                
+                # Check if we're exiting the target text area
+                if current_text_pos > end_idx:
+                    inside_target_text = False
+                
+                if inside_target_text:
+                    if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
+                        range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                        current_range_ids.append((range_id, text_position))
+                        comment_id_to_info[range_id] = ['', text_position]
+                    elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
+                        range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                        if range_id in comment_id_to_info:
+                            comment_id_to_info[range_id][0] = ''.join(
+                                isinstance(x, str) and x or '' 
+                                for x in comment_id_to_info[range_id][0]
+                            )
+                            current_range_ids = [(rid, pos) for rid, pos in current_range_ids if rid != range_id]
+                    elif elem.tag == f'{{{self.namespaces["w"]}}}t':
+                        if elem.text:
+                            for range_id, _ in current_range_ids:
+                                if isinstance(comment_id_to_info[range_id][0], list):
+                                    comment_id_to_info[range_id][0].append(elem.text)
+                                else:
+                                    comment_id_to_info[range_id][0] = [comment_id_to_info[range_id][0], elem.text]
+                            text_position += len(elem.text)
         
-        return comment_id_to_text
+        return {k: (v[0], v[1]) for k, v in comment_id_to_info.items()}
 
     def _get_sub_comments(self, comments_extend_root) -> set[str]:
         """Get set of paragraph IDs that are replies to other comments."""
@@ -109,7 +150,7 @@ class CommentExtractor:
                 comments_root, comments_extend_root, doc_root = self._read_xml_files(zip_ref)
                 
                 # Extract comment ranges and their text
-                comment_id_to_text = self._extract_comment_ranges(doc_root)
+                comment_id_to_text = self._extract_comment_ranges(doc_root, self.start_token, self.end_token)
                 
                 # Get sub-comments (replies)
                 sub_comments = self._get_sub_comments(comments_extend_root)
@@ -155,23 +196,32 @@ class CommentExtractor:
         """Process comments and calculate their positions relative to revised essay."""
         processed_comments = []
         raw_comments = self.extract_comments_from_docx(doc_path)
-        
+
+        # Extract positions from document XML
+        with zipfile.ZipFile(doc_path) as zip_ref:
+            document_xml = zip_ref.read('word/document.xml')
+            doc_root = ElementTree.fromstring(document_xml)
+            comment_positions = self._extract_comment_ranges(doc_root, self.start_token, self.end_token)
+
         for comment in raw_comments:
             highlighted_text = comment.highlighted_text
             if highlighted_text:
-                # Find the position of the highlighted text in the revised essay
-                start = revised_essay.find(highlighted_text)
-                if start != -1:
-                    end = start + len(highlighted_text)
-                    
-                    processed_comments.append({
-                        "start": start,
-                        "end": end,
-                        "highlighted_text": highlighted_text,
-                        "comment_text": comment.comment_text,
-                        "author": comment.author,
-                        "date": comment.date
-                    })
+                # Get the original position from XML
+                comment_info = comment_positions.get(comment.id)
+                if comment_info is None:
+                    logger.warning(f"No position info found for comment {comment.id}")
+                    continue
+                
+                text, pos = comment_info
+                
+                processed_comments.append({
+                    "start": pos,
+                    "end": pos + len(highlighted_text),
+                    "highlighted_text": highlighted_text,
+                    "comment_text": comment.comment_text,
+                    "author": comment.author,
+                    "date": comment.date
+                })
         
         return processed_comments
 
