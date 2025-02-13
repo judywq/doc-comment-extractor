@@ -65,27 +65,57 @@ class CommentExtractor:
                             if elem.text:
                                 current_text.append(elem.text)
                     
+                    # Create a map of parent comments to track reply threads
+                    comment_parents = {}
+                    processed_ids = set()
+                    
+                    # First pass: build parent-child relationships
+                    for comment in root.findall('.//w:comment', self.namespaces):
+                        comment_id = comment.get(f'{{{self.namespaces["w"]}}}id')
+                        parent_id = comment.get(f'{{{self.namespaces["w"]}}}parentId')
+                        
+                        if parent_id:
+                            comment_parents[comment_id] = parent_id
+                    
                     # Process each comment
                     for comment in root.findall('.//w:comment', self.namespaces):
                         comment_id = comment.get(f'{{{self.namespaces["w"]}}}id')
-                        author = comment.get(f'{{{self.namespaces["w"]}}}author', '')
-                        date = comment.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat())
+                        
+                        # Skip if this is a reply (has a parent) and we've already processed the thread
+                        if comment_id in processed_ids:
+                            continue
+                        
+                        # If this is a reply, find the root comment
+                        current_id = comment_id
+                        while current_id in comment_parents:
+                            processed_ids.add(current_id)
+                            current_id = comment_parents[current_id]
+                        
+                        # Get the root comment
+                        root_comment = root.find(f'.//w:comment[@w:id="{current_id}"]', self.namespaces)
+                        if root_comment is None:
+                            continue
+                            
+                        author = root_comment.get(f'{{{self.namespaces["w"]}}}author', '')
+                        date = root_comment.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat())
                         
                         # Get comment text
                         comment_text = []
-                        for p in comment.findall('.//w:t', self.namespaces):
+                        for p in root_comment.findall('.//w:t', self.namespaces):
                             if p.text:
                                 comment_text.append(p.text)
                         
-                        highlighted_text = comment_ranges.get(comment_id, '')
+                        highlighted_text = comment_ranges.get(current_id, '')
                         
                         comments.append({
-                            'id': comment_id,
+                            'id': current_id,
                             'author': author,
                             'date': date,
                             'comment_text': ' '.join(comment_text),
                             'highlighted_text': highlighted_text
                         })
+                        
+                        processed_ids.add(current_id)
                 
                 except KeyError as e:
                     print(f"No comments found in document: {e}")
@@ -161,6 +191,8 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
             output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
             
             result = extractor.process_document(input_path)
+            comments = result['comments']
+            print(f"Number of comments: {len(comments)}")
             if result:
                 with open(output_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f, ensure_ascii=False, indent=2)
