@@ -195,7 +195,8 @@ class CommentExtractor:
             print(f"Error processing {file_path}: {str(e)}")
             return None
 
-def process_folder(input_folder: str, output_folder: str, start_token: str, end_token: str):
+def process_folder(input_folder: str, output_folder: str, start_token: str, end_token: str, 
+                  include_author: bool = False, include_date: bool = False):
     """Process all Word documents in the input folder and save results to output folder."""
     # Create output folder if it doesn't exist
     os.makedirs(output_folder, exist_ok=True)
@@ -209,6 +210,15 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
             output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
             
             result = extractor.process_document(input_path)
+            
+            # Filter out author and date if not requested
+            if result and not include_author:
+                for comment in result['comments']:
+                    comment.pop('author', None)
+            if result and not include_date:
+                for comment in result['comments']:
+                    comment.pop('date', None)
+                    
             comments = result['comments']
             print(f"Number of comments: {len(comments)}")
             if result:
@@ -224,10 +234,15 @@ def main():
     parser.add_argument('--output_folder', help='Folder to save JSON files')
     parser.add_argument('--start_token', help='Start token for text extraction')
     parser.add_argument('--end_token', help='End token for text extraction')
+    parser.add_argument('--author', action='store_true', default=False,
+                      help='Include author field in comments (default: False)')
+    parser.add_argument('--date', action='store_true', default=False,
+                      help='Include date field in comments (default: False)')
     
     args = parser.parse_args()
     
-    process_folder(args.input_folder, args.output_folder, args.start_token, args.end_token)
+    process_folder(args.input_folder, args.output_folder, args.start_token, args.end_token,
+                  include_author=args.author, include_date=args.date)
 
 if __name__ == "__main__":
     main()
