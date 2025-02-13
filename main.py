@@ -7,8 +7,10 @@ import argparse
 from typing import Dict, List, Optional
 from xml.etree import ElementTree
 import zipfile
+import logging
 
 DEBUG = True
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Comment:
@@ -125,6 +127,10 @@ class CommentExtractor:
                     if para_id in sub_comments:
                         continue  # Skip reply comments
                     
+                    highlighted_text = comment_id_to_text.get(comment_id, None)
+                    if highlighted_text is None:
+                        logger.warning("Skip comment. No highlighted text found for comment %s", comment_id)
+                        continue
                     comment = Comment(
                         id=comment_id,
                         para_id=para_id,
@@ -132,17 +138,17 @@ class CommentExtractor:
                         author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
                         date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
                         comment_text=self._extract_comment_text(comment_node),
-                        highlighted_text=comment_id_to_text.get(comment_id, 'ERROR: No highlighted text found')
+                        highlighted_text=highlighted_text
                     )
                     comments.append(comment)
                 
                 return comments
                 
         except zipfile.BadZipFile:
-            print(f"Error: {docx_path} is not a valid Word document")
+            logger.error("Error: %s is not a valid Word document", docx_path)
             return []
         except Exception as e:
-            print(f"Error extracting comments: {str(e)}")
+            logger.error("Error extracting comments: %s", str(e))
             return []
 
     def process_comments(self, doc_path: str, revised_essay: str) -> List[Dict]:
@@ -180,7 +186,7 @@ class CommentExtractor:
             # Extract text between tokens
             revised_essay = self.extract_text_between_tokens(full_text)
             if not revised_essay:
-                print(f"Warning: Could not find tokens in {file_path}")
+                logger.warning("Could not find tokens in %s", file_path)
                 return None
             
             # Process comments
@@ -192,7 +198,7 @@ class CommentExtractor:
             }
             
         except Exception as e:
-            print(f"Error processing {file_path}: {str(e)}")
+            logger.error("Error processing %s: %s", file_path, str(e))
             return None
 
 def process_folder(input_folder: str, output_folder: str, start_token: str, end_token: str, 
@@ -208,6 +214,7 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
         if filename.endswith('.docx'):
             input_path = os.path.join(input_folder, filename)
             output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
+            logger.info("Processing %s", filename)
             
             result = extractor.process_document(input_path)
             
@@ -220,11 +227,11 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
                     comment.pop('date', None)
                     
             comments = result['comments']
-            print(f"Number of comments: {len(comments)}")
+            logger.info("There are %s comments in %s", len(comments), filename)
             if result:
                 with open(output_path, 'w', encoding='utf-8') as f:
                     json.dump(result, f, ensure_ascii=False, indent=2)
-                print(f"Processed {filename} -> {output_path}")
+                logger.info("Processed %s -> %s", filename, output_path)
         if DEBUG:
             break
 
@@ -245,4 +252,5 @@ def main():
                   include_author=args.author, include_date=args.date)
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     main()
