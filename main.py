@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import os
 import json
 from datetime import datetime
@@ -9,13 +10,26 @@ import zipfile
 
 DEBUG = True
 
+@dataclass
+class Comment:
+    id: str
+    para_id: str
+    para_id_parent: Optional[str]
+    author: str
+    date: str
+    comment_text: str
+    highlighted_text: str
+
+
+
 class CommentExtractor:
     def __init__(self, start_token: str, end_token: str):
         self.start_token = start_token
         self.end_token = end_token
         self.namespaces = {
             'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
-            'w14': 'http://schemas.microsoft.com/office/word/2010/wordml'
+            'w14': 'http://schemas.microsoft.com/office/word/2010/wordml',
+            'w15': 'http://schemas.microsoft.com/office/word/2012/wordml'
         }
 
     def extract_text_between_tokens(self, text: str) -> Optional[str]:
@@ -38,85 +52,67 @@ class CommentExtractor:
         try:
             with zipfile.ZipFile(docx_path) as zip_ref:
                 try:
+                    # Read both comments.xml and commentsExtended.xml
                     comments_xml = zip_ref.read('word/comments.xml')
-                    root = ElementTree.fromstring(comments_xml)
-                    
+                    comments_extended_xml = zip_ref.read('word/commentsExtended.xml')
                     document_xml = zip_ref.read('word/document.xml')
+                    
+                    comments_root = ElementTree.fromstring(comments_xml)
+                    comments_extend_root = ElementTree.fromstring(comments_extended_xml)
                     doc_root = ElementTree.fromstring(document_xml)
                     
-                    # Create a mapping of comment IDs to their ranges and text
-                    comment_ranges = {}
                     
                     # First pass: find all comment ranges and their text
-                    current_range_id = None
-                    current_text = []
+                    current_range_ids = []
+                    comment_id_to_text = {}
                     
                     for elem in doc_root.iter():
                         if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
-                            current_range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                            current_text = []
+                            range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                            current_range_ids.append(range_id)
+                            comment_id_to_text[range_id] = []
                         elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
                             range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                            if range_id == current_range_id:
-                                comment_ranges[current_range_id] = ''.join(current_text)
-                                current_range_id = None
-                                current_text = []
-                        elif current_range_id is not None and elem.tag == f'{{{self.namespaces["w"]}}}t':
-                            if elem.text:
-                                current_text.append(elem.text)
+                            if range_id in current_range_ids:
+                                comment_id_to_text[range_id] = ''.join(comment_id_to_text[range_id])
+                                current_range_ids.remove(range_id)
+                        elif elem.tag == f'{{{self.namespaces["w"]}}}t':
+                            if elem.text and len(current_range_ids) > 0:
+                                for range_id in current_range_ids:
+                                    comment_id_to_text[range_id].append(elem.text)
+
+                    # Create a list of sub-comments
+                    sub_comments = []
+                    for comment_ex in comments_extend_root.findall('.//w15:commentEx', self.namespaces):
+                        para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraId')
+                        parent_para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraIdParent', None)                    
+                        if parent_para_id is not None:
+                            sub_comments.append(para_id)
                     
-                    # Create a map of parent comments to track reply threads
-                    comment_parents = {}
-                    processed_ids = set()
-                    
-                    # First pass: build parent-child relationships
-                    for comment in root.findall('.//w:comment', self.namespaces):
-                        comment_id = comment.get(f'{{{self.namespaces["w"]}}}id')
-                        parent_id = comment.get(f'{{{self.namespaces["w"]}}}parentId')
-                        
-                        if parent_id:
-                            comment_parents[comment_id] = parent_id
-                    
-                    # Process each comment
-                    for comment in root.findall('.//w:comment', self.namespaces):
-                        comment_id = comment.get(f'{{{self.namespaces["w"]}}}id')
-                        
-                        # Skip if this is a reply (has a parent) and we've already processed the thread
-                        if comment_id in processed_ids:
-                            continue
-                        
-                        # If this is a reply, find the root comment
-                        current_id = comment_id
-                        while current_id in comment_parents:
-                            processed_ids.add(current_id)
-                            current_id = comment_parents[current_id]
-                        
-                        # Get the root comment
-                        root_comment = root.find(f'.//w:comment[@w:id="{current_id}"]', self.namespaces)
-                        if root_comment is None:
-                            continue
+                    for comment_node in comments_root.findall('.//w:comment', self.namespaces):
+                        comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
+                        para = comment_node.find('.//w:p', self.namespaces)
+                        if para is not None:
+                            para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
+                            if para_id in sub_comments:
+                                # Skip sub-comments (replies)
+                                continue
                             
-                        author = root_comment.get(f'{{{self.namespaces["w"]}}}author', '')
-                        date = root_comment.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat())
-                        
-                        # Get comment text
-                        comment_text = []
-                        for p in root_comment.findall('.//w:t', self.namespaces):
-                            if p.text:
-                                comment_text.append(p.text)
-                        
-                        highlighted_text = comment_ranges.get(current_id, '')
-                        
-                        comments.append({
-                            'id': current_id,
-                            'author': author,
-                            'date': date,
-                            'comment_text': ' '.join(comment_text),
-                            'highlighted_text': highlighted_text
-                        })
-                        
-                        processed_ids.add(current_id)
-                
+                            comment_text = []
+                            for p in comment_node.findall('.//w:t', self.namespaces):
+                                if p.text:
+                                    comment_text.append(p.text)                            
+                            comment = Comment(
+                                id=comment_id,
+                                para_id=para_id,
+                                para_id_parent=None,
+                                author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
+                                date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
+                                comment_text=' '.join(comment_text),
+                                highlighted_text=comment_id_to_text.get(comment_id, 'ERROR: No highlighted text found')
+                            )
+                            comments.append(comment)
+
                 except KeyError as e:
                     print(f"No comments found in document: {e}")
                     return []
@@ -133,7 +129,7 @@ class CommentExtractor:
         raw_comments = self.extract_comments_from_docx(doc_path)
         
         for comment in raw_comments:
-            highlighted_text = comment['highlighted_text']
+            highlighted_text = comment.highlighted_text
             if highlighted_text:
                 # Find the position of the highlighted text in the revised essay
                 start = revised_essay.find(highlighted_text)
@@ -144,9 +140,9 @@ class CommentExtractor:
                         "start": start,
                         "end": end,
                         "highlighted_text": highlighted_text,
-                        "comment_text": comment['comment_text'],
-                        "author": comment['author'],
-                        "date": comment['date']
+                        "comment_text": comment.comment_text,
+                        "author": comment.author,
+                        "date": comment.date
                     })
         
         return processed_comments
