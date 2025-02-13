@@ -21,7 +21,6 @@ class Comment:
     highlighted_text: str
 
 
-
 class CommentExtractor:
     def __init__(self, start_token: str, end_token: str):
         self.start_token = start_token
@@ -45,83 +44,106 @@ class CommentExtractor:
         """Extract full text from the document."""
         return " ".join(paragraph.text for paragraph in doc.paragraphs)
 
-    def extract_comments_from_docx(self, docx_path: str) -> List[Dict]:
-        """Extract comments directly from the Word document's XML structure."""
-        comments = []
+    def _read_xml_files(self, zip_ref) -> tuple[ElementTree.Element, ElementTree.Element, ElementTree.Element]:
+        """Read and parse XML files from the Word document."""
+        try:
+            comments_xml = zip_ref.read('word/comments.xml')
+            comments_extended_xml = zip_ref.read('word/commentsExtended.xml')
+            document_xml = zip_ref.read('word/document.xml')
+            
+            return (
+                ElementTree.fromstring(comments_xml),
+                ElementTree.fromstring(comments_extended_xml),
+                ElementTree.fromstring(document_xml)
+            )
+        except KeyError as e:
+            raise ValueError(f"Required XML file not found in document: {e}")
+
+    def _extract_comment_ranges(self, doc_root) -> Dict[str, str]:
+        """Extract comment ranges and their corresponding text from document."""
+        current_range_ids = []
+        comment_id_to_text = {}
         
+        for elem in doc_root.iter():
+            if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
+                range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                current_range_ids.append(range_id)
+                comment_id_to_text[range_id] = []
+            elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
+                range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                if range_id in current_range_ids:
+                    comment_id_to_text[range_id] = ''.join(comment_id_to_text[range_id])
+                    current_range_ids.remove(range_id)
+            elif elem.tag == f'{{{self.namespaces["w"]}}}t':
+                if elem.text and len(current_range_ids) > 0:
+                    for range_id in current_range_ids:
+                        comment_id_to_text[range_id].append(elem.text)
+        
+        return comment_id_to_text
+
+    def _get_sub_comments(self, comments_extend_root) -> set[str]:
+        """Get set of paragraph IDs that are replies to other comments."""
+        sub_comments = set()
+        for comment_ex in comments_extend_root.findall('.//w15:commentEx', self.namespaces):
+            para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraId')
+            parent_para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraIdParent', None)                    
+            if parent_para_id is not None:
+                sub_comments.add(para_id)
+        return sub_comments
+
+    def _extract_comment_text(self, comment_node) -> str:
+        """Extract text from a comment node."""
+        comment_text = []
+        for p in comment_node.findall('.//w:t', self.namespaces):
+            if p.text:
+                comment_text.append(p.text)
+        return ' '.join(comment_text)
+
+    def extract_comments_from_docx(self, docx_path: str) -> List[Comment]:
+        """Extract comments directly from the Word document's XML structure."""
         try:
             with zipfile.ZipFile(docx_path) as zip_ref:
-                try:
-                    # Read both comments.xml and commentsExtended.xml
-                    comments_xml = zip_ref.read('word/comments.xml')
-                    comments_extended_xml = zip_ref.read('word/commentsExtended.xml')
-                    document_xml = zip_ref.read('word/document.xml')
-                    
-                    comments_root = ElementTree.fromstring(comments_xml)
-                    comments_extend_root = ElementTree.fromstring(comments_extended_xml)
-                    doc_root = ElementTree.fromstring(document_xml)
-                    
-                    
-                    # First pass: find all comment ranges and their text
-                    current_range_ids = []
-                    comment_id_to_text = {}
-                    
-                    for elem in doc_root.iter():
-                        if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
-                            range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                            current_range_ids.append(range_id)
-                            comment_id_to_text[range_id] = []
-                        elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
-                            range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                            if range_id in current_range_ids:
-                                comment_id_to_text[range_id] = ''.join(comment_id_to_text[range_id])
-                                current_range_ids.remove(range_id)
-                        elif elem.tag == f'{{{self.namespaces["w"]}}}t':
-                            if elem.text and len(current_range_ids) > 0:
-                                for range_id in current_range_ids:
-                                    comment_id_to_text[range_id].append(elem.text)
-
-                    # Create a list of sub-comments
-                    sub_comments = []
-                    for comment_ex in comments_extend_root.findall('.//w15:commentEx', self.namespaces):
-                        para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraId')
-                        parent_para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraIdParent', None)                    
-                        if parent_para_id is not None:
-                            sub_comments.append(para_id)
-                    
-                    for comment_node in comments_root.findall('.//w:comment', self.namespaces):
-                        comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
-                        para = comment_node.find('.//w:p', self.namespaces)
-                        if para is not None:
-                            para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
-                            if para_id in sub_comments:
-                                # Skip sub-comments (replies)
-                                continue
-                            
-                            comment_text = []
-                            for p in comment_node.findall('.//w:t', self.namespaces):
-                                if p.text:
-                                    comment_text.append(p.text)                            
-                            comment = Comment(
-                                id=comment_id,
-                                para_id=para_id,
-                                para_id_parent=None,
-                                author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
-                                date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
-                                comment_text=' '.join(comment_text),
-                                highlighted_text=comment_id_to_text.get(comment_id, 'ERROR: No highlighted text found')
-                            )
-                            comments.append(comment)
-
-                except KeyError as e:
-                    print(f"No comments found in document: {e}")
-                    return []
+                # Read XML files
+                comments_root, comments_extend_root, doc_root = self._read_xml_files(zip_ref)
                 
+                # Extract comment ranges and their text
+                comment_id_to_text = self._extract_comment_ranges(doc_root)
+                
+                # Get sub-comments (replies)
+                sub_comments = self._get_sub_comments(comments_extend_root)
+                
+                # Process main comments
+                comments = []
+                for comment_node in comments_root.findall('.//w:comment', self.namespaces):
+                    comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
+                    para = comment_node.find('.//w:p', self.namespaces)
+                    
+                    if para is None:
+                        continue
+                        
+                    para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
+                    if para_id in sub_comments:
+                        continue  # Skip reply comments
+                    
+                    comment = Comment(
+                        id=comment_id,
+                        para_id=para_id,
+                        para_id_parent=None,
+                        author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
+                        date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
+                        comment_text=self._extract_comment_text(comment_node),
+                        highlighted_text=comment_id_to_text.get(comment_id, 'ERROR: No highlighted text found')
+                    )
+                    comments.append(comment)
+                
+                return comments
+                
+        except zipfile.BadZipFile:
+            print(f"Error: {docx_path} is not a valid Word document")
+            return []
         except Exception as e:
             print(f"Error extracting comments: {str(e)}")
             return []
-            
-        return comments
 
     def process_comments(self, doc_path: str, revised_essay: str) -> List[Dict]:
         """Process comments and calculate their positions relative to revised essay."""
