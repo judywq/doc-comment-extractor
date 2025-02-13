@@ -2,15 +2,16 @@ from dataclasses import dataclass
 import os
 import json
 from datetime import datetime
-from docx import Document
 import argparse
 from typing import Dict, List, Optional
 from xml.etree import ElementTree
 import zipfile
 import logging
+from exception import StartTokenNotFound
+
+logger = logging.getLogger(__name__)
 
 DEBUG = True
-logger = logging.getLogger(__name__)
 
 @dataclass
 class Comment:
@@ -21,7 +22,48 @@ class Comment:
     date: str
     comment_text: str
     highlighted_text: str
+    start: int
+    end: int
+    
+    def get_dict(self) -> Dict:
+        return {
+            "start": self.start,
+            "end": self.end,
+            "highlighted_text": self.highlighted_text,
+            "comment_text": self.comment_text,
+            "author": self.author,
+            "date": self.date
+        }
 
+@dataclass
+class HighlightRange:
+    """Highlight range with relative start position."""
+    comment_id: str
+    absolute_start: int
+    section_start: int
+    texts: List[str]
+    
+    def __init__(self, comment_id: str, absolute_start: int):
+        self.comment_id = comment_id
+        self.absolute_start = absolute_start
+        self.section_start = -1
+        self.texts = []
+    
+    def append(self, text: str):
+        self.texts.append(text)
+    
+    def get_text(self) -> str:
+        return ''.join(self.texts)
+    
+    def get_relative_start(self) -> int:
+        return self.absolute_start - self.section_start
+
+@dataclass
+class Section:
+    start: int
+    end: int
+    raw_text: str
+    stripped_text: str
 
 class CommentExtractor:
     def __init__(self, start_token: str, end_token: str):
@@ -33,96 +75,82 @@ class CommentExtractor:
             'w15': 'http://schemas.microsoft.com/office/word/2012/wordml'
         }
 
-    def extract_text_between_tokens(self, text: str) -> Optional[str]:
+    def extract_text_between_tokens(self, text: str) -> Section:
         """Extract text between start and end tokens."""
         try:
             start_idx = text.index(self.start_token) + len(self.start_token)
             end_idx = text.index(self.end_token, start_idx)
-            return text[start_idx:end_idx].strip()
+            raw_text = text[start_idx:end_idx]
+            lstripped_text = raw_text.lstrip()
+            stripped_text = lstripped_text.rstrip()
+            blank_chars_before_start_token = len(raw_text) - len(lstripped_text)
+            blank_chars_before_end_token = len(lstripped_text) - len(stripped_text)
+            
+            return Section(start=start_idx + blank_chars_before_start_token, 
+                           end=end_idx - blank_chars_before_end_token, 
+                           raw_text=raw_text, 
+                           stripped_text=stripped_text)
         except ValueError:
             return None
 
-    def get_document_text(self, doc) -> str:
-        """Extract full text from the document."""
-        return " ".join(paragraph.text for paragraph in doc.paragraphs)
+   
+    
+    def _read_docx_file(self, file_path: str) -> tuple[ElementTree.Element, ElementTree.Element, ElementTree.Element]:
+        try:
+            with zipfile.ZipFile(file_path) as zip_ref:
+                # Read XML files
+                comments_root = self._read_xml_files(zip_ref, 'word/comments.xml')
+                comments_extend_root = self._read_xml_files(zip_ref, 'word/commentsExtended.xml')
+                doc_root = self._read_xml_files(zip_ref, 'word/document.xml')
+                return comments_root, comments_extend_root, doc_root
+        except Exception as e:
+            logger.error("Error reading %s: %s", file_path, str(e))
+            return None, None, None
 
-    def _read_xml_files(self, zip_ref) -> tuple[ElementTree.Element, ElementTree.Element, ElementTree.Element]:
+    def _read_xml_files(self, zip_ref, inner_file_name: str) -> ElementTree.Element:
         """Read and parse XML files from the Word document."""
         try:
-            comments_xml = zip_ref.read('word/comments.xml')
-            comments_extended_xml = zip_ref.read('word/commentsExtended.xml')
-            document_xml = zip_ref.read('word/document.xml')
-            
-            return (
-                ElementTree.fromstring(comments_xml),
-                ElementTree.fromstring(comments_extended_xml),
-                ElementTree.fromstring(document_xml)
-            )
+            xml = zip_ref.read(inner_file_name)
+            return ElementTree.fromstring(xml)
         except KeyError as e:
             raise ValueError(f"Required XML file not found in document: {e}")
 
-    def _extract_comment_ranges(self, doc_root, start_token: str, end_token: str) -> Dict[str, tuple[str, int]]:
+    def _extract_highlight_ranges(self, doc_root) -> Dict[str, HighlightRange]:
         """Extract comment ranges and their corresponding text from document with position info."""
         current_range_ids = []
-        comment_id_to_info = {}
-        text_position = 0
-        inside_target_text = False
-        
-        # Find all text elements to build the full text and track positions
-        full_text = []
-        for elem in doc_root.iter():
-            if elem.tag == f'{{{self.namespaces["w"]}}}t' and elem.text:
-                full_text.append(elem.text)
-        
-        # Find the token boundaries
-        full_text_str = ''.join(full_text)
-        try:
-            start_idx = full_text_str.index(start_token) + len(start_token)
-            end_idx = full_text_str.index(end_token, start_idx)
-        except ValueError:
-            logger.error("Could not find tokens in document")
-            return {}
-        
-        # Reset and process with token awareness
-        text_position = 0
-        current_text_pos = 0
-        
-        for elem in doc_root.iter():
-            if elem.tag == f'{{{self.namespaces["w"]}}}t' and elem.text:
-                current_text_pos += len(elem.text)
+        comment_id_to_range = {}
+        full_text = ""
+        is_first_paragraph = True
                 
-                # Check if we're entering the target text area
-                if current_text_pos > start_idx and not inside_target_text:
-                    inside_target_text = True
-                    text_position = 0
-                
-                # Check if we're exiting the target text area
-                if current_text_pos > end_idx:
-                    inside_target_text = False
-                
-                if inside_target_text:
-                    if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
-                        range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                        current_range_ids.append((range_id, text_position))
-                        comment_id_to_info[range_id] = ['', text_position]
-                    elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
-                        range_id = elem.get(f'{{{self.namespaces["w"]}}}id')
-                        if range_id in comment_id_to_info:
-                            comment_id_to_info[range_id][0] = ''.join(
-                                isinstance(x, str) and x or '' 
-                                for x in comment_id_to_info[range_id][0]
-                            )
-                            current_range_ids = [(rid, pos) for rid, pos in current_range_ids if rid != range_id]
-                    elif elem.tag == f'{{{self.namespaces["w"]}}}t':
-                        if elem.text:
-                            for range_id, _ in current_range_ids:
-                                if isinstance(comment_id_to_info[range_id][0], list):
-                                    comment_id_to_info[range_id][0].append(elem.text)
-                                else:
-                                    comment_id_to_info[range_id][0] = [comment_id_to_info[range_id][0], elem.text]
-                            text_position += len(elem.text)
-        
-        return {k: (v[0], v[1]) for k, v in comment_id_to_info.items()}
+        for elem in doc_root.iter():                
+            if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
+                comment_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                current_range_ids.append(comment_id)
+                hr = HighlightRange(comment_id=comment_id, 
+                                    absolute_start=len(full_text))
+                comment_id_to_range[comment_id] = hr
+            elif elem.tag == f'{{{self.namespaces["w"]}}}commentRangeEnd':
+                comment_id = elem.get(f'{{{self.namespaces["w"]}}}id')
+                if comment_id in comment_id_to_range:
+                    current_range_ids.remove(comment_id)
+            elif elem.tag == f'{{{self.namespaces["w"]}}}t':
+                if elem.text:
+                    for comment_id in current_range_ids:
+                        hr = comment_id_to_range[comment_id]
+                        hr.append(elem.text)
+                    full_text += elem.text
+            elif elem.tag == f'{{{self.namespaces["w"]}}}p':
+                if is_first_paragraph:
+                    is_first_paragraph = False
+                else:
+                    # Add new line to all highlight ranges, if not the first paragraph
+                    new_line = "\n"
+                    full_text += new_line
+                    for comment_id in current_range_ids:
+                        hr = comment_id_to_range[comment_id]
+                        hr.append(new_line)
+
+        return comment_id_to_range, full_text
 
     def _get_sub_comments(self, comments_extend_root) -> set[str]:
         """Get set of paragraph IDs that are replies to other comments."""
@@ -145,85 +173,60 @@ class CommentExtractor:
     def extract_comments_from_docx(self, docx_path: str) -> List[Comment]:
         """Extract comments directly from the Word document's XML structure."""
         try:
-            with zipfile.ZipFile(docx_path) as zip_ref:
-                # Read XML files
-                comments_root, comments_extend_root, doc_root = self._read_xml_files(zip_ref)
+            # Read XML files
+            comments_root, comments_extend_root, doc_root = self._read_docx_file(docx_path)
+            
+            # Extract comment ranges and their text
+            comment_id_to_range, full_text = self._extract_highlight_ranges(doc_root)
+            
+            section = self.extract_text_between_tokens(full_text)
+            
+            # Get sub-comments (replies)
+            sub_comments = self._get_sub_comments(comments_extend_root)
+            
+            # Process main comments
+            comments = []
+            for comment_node in comments_root.findall('.//w:comment', self.namespaces):
+                comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
+                para = comment_node.find('.//w:p', self.namespaces)
                 
-                # Extract comment ranges and their text
-                comment_id_to_text = self._extract_comment_ranges(doc_root, self.start_token, self.end_token)
-                
-                # Get sub-comments (replies)
-                sub_comments = self._get_sub_comments(comments_extend_root)
-                
-                # Process main comments
-                comments = []
-                for comment_node in comments_root.findall('.//w:comment', self.namespaces):
-                    comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
-                    para = comment_node.find('.//w:p', self.namespaces)
+                if para is None:
+                    continue
                     
-                    if para is None:
-                        continue
-                        
-                    para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
-                    if para_id in sub_comments:
-                        continue  # Skip reply comments
-                    
-                    highlighted_text = comment_id_to_text.get(comment_id, None)
-                    if highlighted_text is None:
-                        logger.warning("Skip comment. No highlighted text found for comment %s", comment_id)
-                        continue
-                    comment = Comment(
-                        id=comment_id,
-                        para_id=para_id,
-                        para_id_parent=None,
-                        author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
-                        date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
-                        comment_text=self._extract_comment_text(comment_node),
-                        highlighted_text=highlighted_text
-                    )
-                    comments.append(comment)
+                para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
+                if para_id in sub_comments:
+                    continue  # Skip reply comments
                 
-                return comments
-                
-        except zipfile.BadZipFile:
-            logger.error("Error: %s is not a valid Word document", docx_path)
-            return []
-        except Exception as e:
-            logger.error("Error extracting comments: %s", str(e))
-            return []
-
-    def process_comments(self, doc_path: str, revised_essay: str) -> List[Dict]:
-        """Process comments and calculate their positions relative to revised essay."""
-        processed_comments = []
-        raw_comments = self.extract_comments_from_docx(doc_path)
-
-        # Extract positions from document XML
-        with zipfile.ZipFile(doc_path) as zip_ref:
-            document_xml = zip_ref.read('word/document.xml')
-            doc_root = ElementTree.fromstring(document_xml)
-            comment_positions = self._extract_comment_ranges(doc_root, self.start_token, self.end_token)
-
-        for comment in raw_comments:
-            highlighted_text = comment.highlighted_text
-            if highlighted_text:
-                # Get the original position from XML
-                comment_info = comment_positions.get(comment.id)
-                if comment_info is None:
-                    logger.warning(f"No position info found for comment {comment.id}")
+                highlighted_range = comment_id_to_range.get(comment_id, None)
+                if highlighted_range is None:
+                    logger.warning("Skip comment. No highlighted text found for comment %s", comment_id)
                     continue
                 
-                text, pos = comment_info
+                highlighted_range.section_start = section.start
                 
-                processed_comments.append({
-                    "start": pos,
-                    "end": pos + len(highlighted_text),
-                    "highlighted_text": highlighted_text,
-                    "comment_text": comment.comment_text,
-                    "author": comment.author,
-                    "date": comment.date
-                })
-        
-        return processed_comments
+                pos = highlighted_range.get_relative_start()
+                if pos < 0:
+                    logger.warning("Skip comment. Comment %s appears before start token", comment_id)
+                    continue
+                
+                comment = Comment(
+                    id=comment_id,
+                    para_id=para_id,
+                    para_id_parent=None,
+                    author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
+                    date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
+                    comment_text=self._extract_comment_text(comment_node),
+                    highlighted_text=highlighted_range.get_text(),
+                    start=pos,
+                    end=pos + len(highlighted_range.get_text())
+                )
+                comments.append(comment.get_dict())
+            
+            return comments, section
+            
+        except Exception as e:
+            logger.error("Error extracting comments: %s", str(e))
+            return [], None
 
     def process_document(self, file_path: str) -> Optional[Dict]:
         """Process a single document and return the JSON structure."""
@@ -231,20 +234,13 @@ class CommentExtractor:
             "revised_essay": None,
             "comments": []
         }
-        try:
-            doc = Document(file_path)
-            
-            # Get full document text
-            full_text = self.get_document_text(doc)
-            
-            # Extract text between tokens
-            revised_essay = self.extract_text_between_tokens(full_text)
+        try:            
+            # Process comments
+            comments, section = self.extract_comments_from_docx(file_path)
+            revised_essay = section.stripped_text
             if not revised_essay:
                 logger.warning("Could not find tokens in %s", file_path)
                 return result
-            
-            # Process comments
-            comments = self.process_comments(file_path, revised_essay)
             
             result["revised_essay"] = revised_essay
             result["comments"] = comments
@@ -263,7 +259,7 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
     extractor = CommentExtractor(start_token, end_token)
     
     # Process each .docx file in the input folder
-    for filename in os.listdir(input_folder):
+    for idx, filename in enumerate(os.listdir(input_folder)):
         if filename.endswith('.docx'):
             input_path = os.path.join(input_folder, filename)
             output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")

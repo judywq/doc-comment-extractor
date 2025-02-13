@@ -1,0 +1,2 @@
+class StartTokenNotFound(Exception):
+    pass
