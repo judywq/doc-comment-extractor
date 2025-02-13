@@ -177,6 +177,10 @@ class CommentExtractor:
 
     def process_document(self, file_path: str) -> Optional[Dict]:
         """Process a single document and return the JSON structure."""
+        result = {
+            "revised_essay": None,
+            "comments": []
+        }
         try:
             doc = Document(file_path)
             
@@ -187,19 +191,18 @@ class CommentExtractor:
             revised_essay = self.extract_text_between_tokens(full_text)
             if not revised_essay:
                 logger.warning("Could not find tokens in %s", file_path)
-                return None
+                return result
             
             # Process comments
             comments = self.process_comments(file_path, revised_essay)
             
-            return {
-                "revised_essay": revised_essay,
-                "comments": comments
-            }
+            result["revised_essay"] = revised_essay
+            result["comments"] = comments
+            return result
             
         except Exception as e:
             logger.error("Error processing %s: %s", file_path, str(e))
-            return None
+            return result
 
 def process_folder(input_folder: str, output_folder: str, start_token: str, end_token: str, 
                   include_author: bool = False, include_date: bool = False):
