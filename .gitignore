@@ -1,0 +1,4 @@
+data/samples/*
+data/output/*
+data/test/*
+.venv
