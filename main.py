@@ -35,19 +35,14 @@ class Comment:
             "date": self.date
         }
 
-@dataclass
+
 class HighlightRange:
     """Highlight range with relative start position."""
-    comment_id: str
-    absolute_start: int
-    section_start: int
-    texts: List[str]
-    
     def __init__(self, comment_id: str, absolute_start: int):
         self.comment_id = comment_id
         self.absolute_start = absolute_start
         self.section_start = -1
-        self.texts = []
+        self.texts: List[str] = []
     
     def append(self, text: str):
         self.texts.append(text)
@@ -57,7 +52,7 @@ class HighlightRange:
     
     def get_relative_start(self) -> int:
         return self.absolute_start - self.section_start
-
+    
 @dataclass
 class Section:
     start: int
