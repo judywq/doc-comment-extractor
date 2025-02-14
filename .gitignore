@@ -1,4 +1,4 @@
-data/samples/*
+data/input/*
 data/output/*
 data/test/*
 .venv

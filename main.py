@@ -11,7 +11,11 @@ DEBUG = False
 
 def process_folder(input_folder: str, output_folder: str, config: ExtractConfig):
     """Process all Word documents in the input folder and save results to output folder."""
-    os.makedirs(output_folder, exist_ok=True)
+    # Create separate folders for json and html outputs
+    json_output_folder = os.path.join(output_folder, 'json')
+    html_output_folder = os.path.join(output_folder, 'html')
+    os.makedirs(json_output_folder, exist_ok=True)
+    os.makedirs(html_output_folder, exist_ok=True)
     
     extractor = CommentExtractor(config)
     html_formatter = HtmlFormatter()
@@ -19,8 +23,9 @@ def process_folder(input_folder: str, output_folder: str, config: ExtractConfig)
     for idx, filename in enumerate(os.listdir(input_folder)):
         if filename.endswith('.docx') and not filename.startswith('~$'):
             input_path = os.path.join(input_folder, filename)
-            json_output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
-            html_output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.html")
+            base_name = os.path.splitext(filename)[0]
+            json_output_path = os.path.join(json_output_folder, f"{base_name}.json")
+            html_output_path = os.path.join(html_output_folder, f"{base_name}.html")
             logger.info("Processing %s", filename)
             
             result = extractor.process_document(input_path)
