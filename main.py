@@ -375,7 +375,7 @@ def process_folder(input_folder: str, output_folder: str, config: ExtractConfig)
     
     # Process each .docx file in the input folder
     for idx, filename in enumerate(os.listdir(input_folder)):
-        if filename.endswith('.docx'):
+        if filename.endswith('.docx') and not filename.startswith('~$'):
             input_path = os.path.join(input_folder, filename)
             json_output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.json")
             html_output_path = os.path.join(output_folder, f"{os.path.splitext(filename)[0]}.html")
