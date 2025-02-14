@@ -280,6 +280,7 @@ def json_to_html(json_data: Dict) -> str:
             position: relative;
             cursor: pointer;
             display: inline-block;  /* Added to contain the tooltip */
+            white-space: pre-wrap; /* Added to preserve whitespace */
         }
         .tooltip {
             visibility: hidden;
