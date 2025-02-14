@@ -94,8 +94,6 @@ class CommentExtractor:
         except ValueError:
             return None
 
-   
-    
     def _read_docx_file(self, file_path: str) -> tuple[ElementTree.Element, ElementTree.Element, ElementTree.Element]:
         try:
             with zipfile.ZipFile(file_path) as zip_ref:
@@ -104,7 +102,7 @@ class CommentExtractor:
                 comments_extend_root = self._read_xml_files(zip_ref, 'word/commentsExtended.xml')
                 doc_root = self._read_xml_files(zip_ref, 'word/document.xml')
                 return comments_root, comments_extend_root, doc_root
-        except Exception as e:
+        except zipfile.BadZipFile as e:
             logger.error("Error reading %s: %s", file_path, str(e))
             return None, None, None
 
@@ -112,9 +110,10 @@ class CommentExtractor:
         """Read and parse XML files from the Word document."""
         try:
             xml = zip_ref.read(inner_file_name)
-            return ElementTree.fromstring(xml)
         except KeyError as e:
-            raise ValueError(f"Required XML file not found in document: {e}")
+            logger.warning(f"XML file {inner_file_name} not found in document {zip_ref.filename}")
+            return None
+        return ElementTree.fromstring(xml)
 
     def _extract_highlight_ranges(self, doc_root) -> Dict[str, HighlightRange]:
         """Extract comment ranges and their corresponding text from document with position info."""
@@ -122,6 +121,9 @@ class CommentExtractor:
         comment_id_to_range = {}
         full_text = ""
         is_first_paragraph = True
+        
+        if doc_root is None:
+            return comment_id_to_range, full_text
                 
         for elem in doc_root.iter():                
             if elem.tag == f'{{{self.namespaces["w"]}}}commentRangeStart':
@@ -160,6 +162,8 @@ class CommentExtractor:
     def _get_sub_comments(self, comments_extend_root) -> set[str]:
         """Get set of paragraph IDs that are replies to other comments."""
         sub_comments = set()
+        if comments_extend_root is None:
+            return sub_comments
         for comment_ex in comments_extend_root.findall('.//w15:commentEx', self.namespaces):
             para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraId')
             parent_para_id = comment_ex.get(f'{{{self.namespaces["w15"]}}}paraIdParent', None)                    
@@ -177,20 +181,22 @@ class CommentExtractor:
 
     def extract_comments_from_docx(self, docx_path: str) -> List[Comment]:
         """Extract comments directly from the Word document's XML structure."""
-        try:
-            # Read XML files
-            comments_root, comments_extend_root, doc_root = self._read_docx_file(docx_path)
-            
-            # Extract comment ranges and their text
-            comment_id_to_range, full_text = self._extract_highlight_ranges(doc_root)
-            
-            section = self.extract_text_between_tokens(full_text)
-            
-            # Get sub-comments (replies)
-            sub_comments = self._get_sub_comments(comments_extend_root)
-            
-            # Process main comments
-            comments = []
+        # Read XML files
+        comments_root, comments_extend_root, doc_root = self._read_docx_file(docx_path)
+
+        # Extract comment ranges and their text
+        comment_id_to_range, full_text = self._extract_highlight_ranges(doc_root)
+        
+        section = self.extract_text_between_tokens(full_text)
+        
+        # Get sub-comments (replies)
+        sub_comments = self._get_sub_comments(comments_extend_root)
+        
+        # Process main comments
+        comments = []
+        if comments_root is None:
+            logger.warning("Skip document. No comments found in %s", docx_path)
+        else:
             for comment_node in comments_root.findall('.//w:comment', self.namespaces):
                 comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
                 para = comment_node.find('.//w:p', self.namespaces)
@@ -226,13 +232,9 @@ class CommentExtractor:
                     end=pos + len(highlighted_range.get_text())
                 )
                 comments.append(comment.get_dict())
-            
-            return comments, section
-            
-        except Exception as e:
-            logger.error("Error extracting comments: %s", str(e))
-            return [], None
-
+        
+        return comments, section
+        
     def process_document(self, file_path: str) -> Optional[Dict]:
         """Process a single document and return the JSON structure."""
         result = {
@@ -242,7 +244,7 @@ class CommentExtractor:
         try:            
             # Process comments
             comments, section = self.extract_comments_from_docx(file_path)
-            revised_essay = section.stripped_text
+            revised_essay = section.stripped_text if section else ""
             if not revised_essay:
                 logger.warning("Could not find tokens in %s", file_path)
                 return result
