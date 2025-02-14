@@ -74,6 +74,7 @@ class CommentExtractor:
             'w14': 'http://schemas.microsoft.com/office/word/2010/wordml',
             'w15': 'http://schemas.microsoft.com/office/word/2012/wordml'
         }
+        self.new_line = "\n"
 
     def extract_text_between_tokens(self, text: str) -> Section:
         """Extract text between start and end tokens."""
@@ -144,11 +145,15 @@ class CommentExtractor:
                     is_first_paragraph = False
                 else:
                     # Add new line to all highlight ranges, if not the first paragraph
-                    new_line = "\n"
-                    full_text += new_line
+                    full_text += self.new_line
                     for comment_id in current_range_ids:
                         hr = comment_id_to_range[comment_id]
-                        hr.append(new_line)
+                        hr.append(self.new_line)
+            elif elem.tag == f'{{{self.namespaces["w"]}}}br':
+                full_text += self.new_line
+                for comment_id in current_range_ids:
+                    hr = comment_id_to_range[comment_id]
+                    hr.append(self.new_line)
 
         return comment_id_to_range, full_text
 
