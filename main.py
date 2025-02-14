@@ -25,15 +25,18 @@ class Comment:
     start: int
     end: int
     
-    def get_dict(self) -> Dict:
-        return {
+    def get_dict(self, include_author: bool = False, include_date: bool = False) -> Dict:
+        d = {
             "start": self.start,
             "end": self.end,
             "highlighted_text": self.highlighted_text,
             "comment_text": self.comment_text,
-            "author": self.author,
-            "date": self.date
         }
+        if include_author:
+            d["author"] = self.author
+        if include_date:
+            d["date"] = self.date
+        return d
 
 
 class HighlightRange:
@@ -60,10 +63,20 @@ class Section:
     raw_text: str
     stripped_text: str
 
-class CommentExtractor:
-    def __init__(self, start_token: str, end_token: str):
+class ExtractConfig:
+    def __init__(self, 
+                 start_token="<!--",
+                 end_token="-->",
+                 include_author=False,
+                 include_date=False):
         self.start_token = start_token
         self.end_token = end_token
+        self.include_author = include_author
+        self.include_date = include_date
+
+class CommentExtractor:
+    def __init__(self, config: ExtractConfig = None):
+        self.config = config or ExtractConfig()
         self.namespaces = {
             'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
             'w14': 'http://schemas.microsoft.com/office/word/2010/wordml',
@@ -74,8 +87,8 @@ class CommentExtractor:
     def extract_text_between_tokens(self, text: str) -> Section:
         """Extract text between start and end tokens."""
         try:
-            start_idx = text.index(self.start_token) + len(self.start_token)
-            end_idx = text.index(self.end_token, start_idx)
+            start_idx = text.index(self.config.start_token) + len(self.config.start_token)
+            end_idx = text.index(self.config.end_token, start_idx)
             raw_text = text[start_idx:end_idx]
             lstripped_text = raw_text.lstrip()
             stripped_text = lstripped_text.rstrip()
@@ -226,7 +239,7 @@ class CommentExtractor:
                     start=pos,
                     end=pos + len(highlighted_range.get_text())
                 )
-                comments.append(comment.get_dict())
+                comments.append(comment.get_dict(self.config.include_author, self.config.include_date))
         
         return comments, section
         
@@ -346,13 +359,12 @@ def json_to_html(json_data: Dict) -> str:
     
     return html
 
-def process_folder(input_folder: str, output_folder: str, start_token: str, end_token: str, 
-                  include_author: bool = False, include_date: bool = False):
+def process_folder(input_folder: str, output_folder: str, config: ExtractConfig):
     """Process all Word documents in the input folder and save results to output folder."""
     # Create output folder if it doesn't exist
     os.makedirs(output_folder, exist_ok=True)
     
-    extractor = CommentExtractor(start_token, end_token)
+    extractor = CommentExtractor(config)
     
     # Process each .docx file in the input folder
     for idx, filename in enumerate(os.listdir(input_folder)):
@@ -364,13 +376,6 @@ def process_folder(input_folder: str, output_folder: str, start_token: str, end_
             
             result = extractor.process_document(input_path)
             
-            # Filter out author and date if not requested
-            if result and not include_author:
-                for comment in result['comments']:
-                    comment.pop('author', None)
-            if result and not include_date:
-                for comment in result['comments']:
-                    comment.pop('date', None)
                     
             comments = result['comments']
             logger.info("There are %s comments in %s", len(comments), filename)
@@ -402,8 +407,13 @@ def main():
     
     args = parser.parse_args()
     
-    process_folder(args.input_folder, args.output_folder, args.start_token, args.end_token,
-                  include_author=args.author, include_date=args.date)
+    config = ExtractConfig(
+        start_token=args.start_token,
+        end_token=args.end_token,
+        include_author=args.author,
+        include_date=args.date
+    )
+    process_folder(args.input_folder, args.output_folder, config)
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
