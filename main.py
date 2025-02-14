@@ -187,7 +187,48 @@ class CommentExtractor:
                 comment_text.append(p.text)
         return ' '.join(comment_text)
 
-    def extract_comments_from_docx(self, docx_path: str) -> List[Comment]:
+    def _extract_comments(self, comments_root, comment_id_to_range, section, sub_comments) -> List[Dict]:
+        # Process main comments
+        comments = []
+        
+        for comment_node in comments_root.findall('.//w:comment', self.namespaces):
+            comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
+            para = comment_node.find('.//w:p', self.namespaces)
+            
+            if para is None:
+                continue
+                
+            para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
+            if para_id in sub_comments:
+                continue  # Skip reply comments
+            
+            highlighted_range = comment_id_to_range.get(comment_id, None)
+            if highlighted_range is None:
+                logger.warning("Skip comment. No highlighted text found for comment %s", comment_id)
+                continue
+            
+            highlighted_range.section_start = section.start
+            
+            pos = highlighted_range.get_relative_start()
+            if pos < 0:
+                logger.warning("Skip comment. Comment %s appears before start token", comment_id)
+                continue
+            
+            comment = Comment(
+                id=comment_id,
+                para_id=para_id,
+                para_id_parent=None,
+                author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
+                date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
+                comment_text=self._extract_comment_text(comment_node),
+                highlighted_text=highlighted_range.get_text(),
+                start=pos,
+                end=pos + len(highlighted_range.get_text())
+            )
+            comments.append(comment.get_dict(self.config.include_author, self.config.include_date))
+        return comments
+
+    def extract_comments_from_docx(self, docx_path: str) -> tuple[List[Dict], Section]:
         """Extract comments directly from the Word document's XML structure."""
         # Read XML files
         comments_root, comments_extend_root, doc_root = self._read_docx_file(docx_path)
@@ -199,51 +240,17 @@ class CommentExtractor:
         
         # Get sub-comments (replies)
         sub_comments = self._get_sub_comments(comments_extend_root)
-        
-        # Process main comments
+
         comments = []
         if comments_root is None:
-            logger.warning("Skip document. No comments found in %s", docx_path)
+            logger.warning("Skip document. No comments found")
         else:
-            for comment_node in comments_root.findall('.//w:comment', self.namespaces):
-                comment_id = comment_node.get(f'{{{self.namespaces["w"]}}}id')
-                para = comment_node.find('.//w:p', self.namespaces)
-                
-                if para is None:
-                    continue
-                    
-                para_id = para.get(f'{{{self.namespaces["w14"]}}}paraId')
-                if para_id in sub_comments:
-                    continue  # Skip reply comments
-                
-                highlighted_range = comment_id_to_range.get(comment_id, None)
-                if highlighted_range is None:
-                    logger.warning("Skip comment. No highlighted text found for comment %s", comment_id)
-                    continue
-                
-                highlighted_range.section_start = section.start
-                
-                pos = highlighted_range.get_relative_start()
-                if pos < 0:
-                    logger.warning("Skip comment. Comment %s appears before start token", comment_id)
-                    continue
-                
-                comment = Comment(
-                    id=comment_id,
-                    para_id=para_id,
-                    para_id_parent=None,
-                    author=comment_node.get(f'{{{self.namespaces["w"]}}}author', ''),
-                    date=comment_node.get(f'{{{self.namespaces["w"]}}}date', datetime.now().isoformat()),
-                    comment_text=self._extract_comment_text(comment_node),
-                    highlighted_text=highlighted_range.get_text(),
-                    start=pos,
-                    end=pos + len(highlighted_range.get_text())
-                )
-                comments.append(comment.get_dict(self.config.include_author, self.config.include_date))
+            # Extract comments
+            comments = self._extract_comments(comments_root, comment_id_to_range, section, sub_comments)
         
         return comments, section
         
-    def process_document(self, file_path: str) -> Optional[Dict]:
+    def process_document(self, file_path: str) -> dict[str, List[Dict]]:
         """Process a single document and return the JSON structure."""
         result = {
             "revised_essay": None,
@@ -375,8 +382,7 @@ def process_folder(input_folder: str, output_folder: str, config: ExtractConfig)
             logger.info("Processing %s", filename)
             
             result = extractor.process_document(input_path)
-            
-                    
+
             comments = result['comments']
             logger.info("There are %s comments in %s", len(comments), filename)
             if result:
@@ -414,6 +420,7 @@ def main():
         include_date=args.date
     )
     process_folder(args.input_folder, args.output_folder, config)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
