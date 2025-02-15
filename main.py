@@ -4,6 +4,7 @@ import logging
 from comment_extractor import CommentExtractor, ExtractConfig
 from formatters.html_formatter import HtmlFormatter
 from formatters.json_formatter import JsonFormatter
+from formatters.formatter_factory import FormatterFactory
 
 logger = logging.getLogger(__name__)
 DEBUG = False
@@ -12,18 +13,16 @@ DEBUG = False
 def process_folder(input_folder: str, output_folder: str, config: ExtractConfig, out_formats: set[str]):
     """Process all Word documents in the input folder and save results to output folder."""
     # Initialize formatters based on requested formats
-    formatters = {}
-    if 'json' in out_formats:
-        formatters['json'] = JsonFormatter()
-    if 'html' in out_formats:
-        formatters['html'] = HtmlFormatter()
+    formatters = {
+        fmt: FormatterFactory.get_formatter(fmt)
+        for fmt in out_formats
+    }
     
     extractor = CommentExtractor(config)
     
     for idx, filename in enumerate(os.listdir(input_folder)):
         if filename.endswith('.docx') and not filename.startswith('~$'):
             input_path = os.path.join(input_folder, filename)
-            base_name = os.path.splitext(filename)[0]
             logger.info("Processing %s", filename)
             
             result = extractor.process_document(input_path)
@@ -33,8 +32,7 @@ def process_folder(input_folder: str, output_folder: str, config: ExtractConfig,
             if result:
                 # Save output in each requested format
                 for fmt, formatter in formatters.items():
-                    output_path = os.path.join(output_folder, fmt, f"{base_name}.{fmt}")
-                    formatter.save(result, output_path)
+                    output_path = formatter.save(result, output_folder, filename)
                     logger.info("Generated %s: %s", fmt.upper(), output_path)
                 
         if DEBUG:
@@ -58,7 +56,7 @@ def main():
     
     # Parse output formats
     out_formats = {fmt.strip().lower() for fmt in args.out_formats.split(',')}
-    valid_formats = {'json', 'html'}
+    valid_formats = FormatterFactory.get_valid_formats()
     invalid_formats = out_formats - valid_formats
     if invalid_formats:
         parser.error(f"Invalid output format(s): {', '.join(invalid_formats)}. Valid formats are: {', '.join(valid_formats)}")

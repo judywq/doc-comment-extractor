@@ -98,9 +98,3 @@ class HtmlFormatter(BaseFormatter):
         </head>
         <body>
         """ 
-    
-    def save(self, data: dict, output_path: str) -> None:
-        """Format and save the data to an HTML file."""
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(self.format(data)) 
