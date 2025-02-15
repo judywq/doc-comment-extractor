@@ -1,12 +1,13 @@
 from typing import Dict
 from .base import BaseFormatter
+from setting import ESSAY_TEXT_KEY, COMMENTS_KEY, COMMENT_START_KEY, COMMENT_END_KEY, COMMENT_TEXT_KEY
 
 class XmlFormatter(BaseFormatter):
     """Formatter that converts comment data to XML with inline comment tags."""
     
     def format(self, json_data: Dict) -> str:
-        essay_text = json_data["revised_essay"]
-        comments = json_data["comments"]
+        essay_text = json_data[ESSAY_TEXT_KEY]
+        comments = json_data[COMMENTS_KEY]
         
         if not essay_text or not comments:
             return ""
@@ -15,9 +16,9 @@ class XmlFormatter(BaseFormatter):
         positions = []
         for i, comment in enumerate(comments):
             # Add start tag position
-            positions.append((comment["start"], "start", i, comment["comment_text"]))
+            positions.append((comment[COMMENT_START_KEY], "start", i, comment[COMMENT_TEXT_KEY]))
             # Add end tag position
-            positions.append((comment["end"], "end", i, None))
+            positions.append((comment[COMMENT_END_KEY], "end", i, None))
         
         # Sort positions by index, with end tags coming before start tags at same position
         positions.sort(key=lambda x: (x[0], 0 if x[1] == "end" else 1))

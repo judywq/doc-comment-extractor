@@ -1,12 +1,13 @@
 from typing import Dict
 from .base import BaseFormatter
+from setting import ESSAY_TEXT_KEY, COMMENTS_KEY, COMMENT_START_KEY, COMMENT_END_KEY, COMMENT_TEXT_KEY
 
 class HtmlFormatter(BaseFormatter):
     """Formatter that converts comment data to HTML with styled tooltips."""
     
     def format(self, json_data: Dict) -> str:
-        essay_text = json_data["revised_essay"]
-        comments = sorted(json_data["comments"], key=lambda x: x["start"])
+        essay_text = json_data[ESSAY_TEXT_KEY]
+        comments = sorted(json_data[COMMENTS_KEY], key=lambda x: x[COMMENT_START_KEY])
         
         if not essay_text or not comments:
             return ""
@@ -20,17 +21,17 @@ class HtmlFormatter(BaseFormatter):
         
         for comment in comments:
             # Add text before the comment
-            result_text.append(self._process_text(essay_text[current_pos:comment["start"]]))
+            result_text.append(self._process_text(essay_text[current_pos:comment[COMMENT_START_KEY]]))
             
             # Add highlighted text with tooltip
-            highlighted = self._process_text(essay_text[comment["start"]:comment["end"]])
-            comment_text = self._process_text(comment["comment_text"])
+            highlighted = self._process_text(essay_text[comment[COMMENT_START_KEY]:comment[COMMENT_END_KEY]])
+            comment_text = self._process_text(comment[COMMENT_TEXT_KEY])
             result_text.append(
                 f'<span class="highlighted">{highlighted}'
                 f'<span class="tooltip">{comment_text}</span></span>'
             )
             
-            current_pos = comment["end"]
+            current_pos = comment[COMMENT_END_KEY]
         
         # Add remaining text
         result_text.append(self._process_text(essay_text[current_pos:]))

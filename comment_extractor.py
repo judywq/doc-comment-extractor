@@ -4,6 +4,7 @@ import zipfile
 import logging
 from typing import Dict, List, Optional
 from xml.etree import ElementTree
+from setting import (ESSAY_TEXT_KEY, COMMENTS_KEY, COMMENT_START_KEY, COMMENT_END_KEY, COMMENT_TEXT_KEY, HIGHLIGHTED_TEXT_KEY, AUTHOR_KEY, DATE_KEY)
 
 logger = logging.getLogger(__name__)
 
@@ -21,15 +22,15 @@ class Comment:
     
     def get_dict(self, include_author: bool = False, include_date: bool = False) -> Dict:
         d = {
-            "start": self.start,
-            "end": self.end,
-            "highlighted_text": self.highlighted_text,
-            "comment_text": self.comment_text,
+            COMMENT_START_KEY: self.start,
+            COMMENT_END_KEY: self.end,
+            HIGHLIGHTED_TEXT_KEY: self.highlighted_text,
+            COMMENT_TEXT_KEY: self.comment_text,
         }
         if include_author:
-            d["author"] = self.author
+            d[AUTHOR_KEY] = self.author
         if include_date:
-            d["date"] = self.date
+            d[DATE_KEY] = self.date
         return d
 
 class HighlightRange:
@@ -253,19 +254,19 @@ class CommentExtractor:
     def process_document(self, file_path: str) -> dict[str, List[Dict]]:
         """Process a single document and return the JSON structure."""
         result = {
-            "revised_essay": None,
-            "comments": []
+            ESSAY_TEXT_KEY: None,
+            COMMENTS_KEY: []
         }
         try:            
             # Process comments
             comments, section = self.extract_comments_from_docx(file_path)
-            revised_essay = section.stripped_text if section else ""
-            if not revised_essay:
+            text = section.stripped_text if section else ""
+            if not text:
                 logger.warning("Could not find tokens in %s", file_path)
                 return result
             
-            result["revised_essay"] = revised_essay
-            result["comments"] = comments
+            result[ESSAY_TEXT_KEY] = text
+            result[COMMENTS_KEY] = comments
             return result
             
         except Exception as e:
