@@ -5,6 +5,8 @@ name = "pypi"
 
 [packages]
 python-docx = "*"
+ruff = "*"
+pre-commit = "*"
 
 [dev-packages]
 
