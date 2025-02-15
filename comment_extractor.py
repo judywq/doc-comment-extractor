@@ -58,8 +58,8 @@ class Section:
 
 class ExtractConfig:
     def __init__(self, 
-                 start_token="<!--",
-                 end_token="-->",
+                 start_token=None,
+                 end_token=None,
                  include_author=False,
                  include_date=False):
         self.start_token = start_token
@@ -81,8 +81,14 @@ class CommentExtractor:
     def extract_text_between_tokens(self, text: str) -> Section:
         """Extract text between start and end tokens."""
         try:
-            start_idx = text.index(self.config.start_token) + len(self.config.start_token)
-            end_idx = text.index(self.config.end_token, start_idx)
+            if self.config.start_token is None:
+                start_idx = 0
+            else:
+                start_idx = text.index(self.config.start_token) + len(self.config.start_token)
+            if self.config.end_token is None:
+                end_idx = len(text)
+            else:
+                end_idx = text.index(self.config.end_token, start_idx)
             raw_text = text[start_idx:end_idx]
             lstripped_text = raw_text.lstrip()
             stripped_text = lstripped_text.rstrip()
