@@ -15,7 +15,7 @@
                 "--output_folder", "data/output",
                 "--start_token", "Human feedback:",
                 "--end_token", "Feedback on topic responsiveness:",
-                "--out_formats", "json,html"
+                "--out_formats", "json,xml"
             ]
         },
         {
@@ -27,6 +27,7 @@
             "args": [
                 "--input_folder", "data/input/tests",
                 "--output_folder", "data/output",
+                "--out_formats", "json,xml"
             ]
         }
     ]

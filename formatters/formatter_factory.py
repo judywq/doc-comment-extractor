@@ -2,11 +2,13 @@ from typing import Dict, Type
 from .base import BaseFormatter, FormatterConfig
 from .html_formatter import HtmlFormatter
 from .json_formatter import JsonFormatter
+from .xml_formatter import XmlFormatter
 
 class FormatterFactory:
     _formatters: Dict[str, tuple[Type[BaseFormatter], FormatterConfig]] = {
         'json': (JsonFormatter, FormatterConfig(extension='.json', output_subfolder='json')),
-        'html': (HtmlFormatter, FormatterConfig(extension='.html', output_subfolder='html'))
+        'html': (HtmlFormatter, FormatterConfig(extension='.html', output_subfolder='html')),
+        'xml': (XmlFormatter, FormatterConfig(extension='.xml', output_subfolder='xml'))
     }
 
     @classmethod
