@@ -5,10 +5,10 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File with Arguments",
+            "name": "With section headers",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "main.py",
             "console": "integratedTerminal",
             "args": [
                 "--input_folder", "data/input/samples",
@@ -19,13 +19,13 @@
             ]
         },
         {
-            "name": "Python Debugger: Current File with Arguments 1",
+            "name": "Without section headers",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "main.py",
             "console": "integratedTerminal",
             "args": [
-                "--input_folder", "data/input/tests",
+                "--input_folder", "data/input/minimal",
                 "--output_folder", "data/output",
                 "--out_formats", "json,xml"
             ]
