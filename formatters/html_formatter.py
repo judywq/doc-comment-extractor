@@ -1,6 +1,5 @@
 from typing import Dict
 from .base import BaseFormatter
-import os
 
 class HtmlFormatter(BaseFormatter):
     """Formatter that converts comment data to HTML with styled tooltips."""

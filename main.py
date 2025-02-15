@@ -2,8 +2,6 @@ import os
 import argparse
 import logging
 from comment_extractor import CommentExtractor, ExtractConfig
-from formatters.html_formatter import HtmlFormatter
-from formatters.json_formatter import JsonFormatter
 from formatters.formatter_factory import FormatterFactory
 
 logger = logging.getLogger(__name__)
