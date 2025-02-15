@@ -8,3 +8,8 @@ class BaseFormatter(ABC):
     def format(self, data: Dict) -> str:
         """Convert the input data to the target format."""
         pass 
+    
+    @abstractmethod
+    def save(self, data: Dict, output_path: str) -> None:
+        """Save the formatted data to a file."""
+        pass

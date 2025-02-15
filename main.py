@@ -1,9 +1,9 @@
 import os
-import json
 import argparse
 import logging
 from comment_extractor import CommentExtractor, ExtractConfig
 from formatters.html_formatter import HtmlFormatter
+from formatters.json_formatter import JsonFormatter
 
 logger = logging.getLogger(__name__)
 DEBUG = False
@@ -11,14 +11,14 @@ DEBUG = False
 
 def process_folder(input_folder: str, output_folder: str, config: ExtractConfig, out_formats: set[str]):
     """Process all Word documents in the input folder and save results to output folder."""
-    # Create output folders only for requested formats
-    output_folders = {}
-    for fmt in out_formats:
-        output_folders[fmt] = os.path.join(output_folder, fmt)
-        os.makedirs(output_folders[fmt], exist_ok=True)
+    # Initialize formatters based on requested formats
+    formatters = {}
+    if 'json' in out_formats:
+        formatters['json'] = JsonFormatter()
+    if 'html' in out_formats:
+        formatters['html'] = HtmlFormatter()
     
     extractor = CommentExtractor(config)
-    html_formatter = HtmlFormatter() if 'html' in out_formats else None
     
     for idx, filename in enumerate(os.listdir(input_folder)):
         if filename.endswith('.docx') and not filename.startswith('~$'):
@@ -31,20 +31,11 @@ def process_folder(input_folder: str, output_folder: str, config: ExtractConfig,
             logger.info("There are %s comments in %s", len(comments), filename)
             
             if result:
-                # Save JSON output if requested
-                if 'json' in out_formats:
-                    json_output_path = os.path.join(output_folders['json'], f"{base_name}.json")
-                    with open(json_output_path, 'w', encoding='utf-8') as f:
-                        json.dump(result, f, ensure_ascii=False, indent=2)
-                    logger.info("Generated JSON %s", json_output_path)
-                
-                # Generate and save HTML output if requested
-                if 'html' in out_formats:
-                    html_output_path = os.path.join(output_folders['html'], f"{base_name}.html")
-                    html_content = html_formatter.format(result)
-                    with open(html_output_path, 'w', encoding='utf-8') as f:
-                        f.write(html_content)
-                    logger.info("Generated HTML %s", html_output_path)
+                # Save output in each requested format
+                for fmt, formatter in formatters.items():
+                    output_path = os.path.join(output_folder, fmt, f"{base_name}.{fmt}")
+                    formatter.save(result, output_path)
+                    logger.info("Generated %s: %s", fmt.upper(), output_path)
                 
         if DEBUG:
             break
