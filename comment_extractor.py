@@ -52,7 +52,7 @@ class HighlightRange:
     def __init__(self, comment_id: str, absolute_start: int):
         self.comment_id = comment_id
         self.absolute_start = absolute_start
-        self.section_start = -1
+        self.section_start = 0
         self.texts: List[str] = []
 
     def append(self, text: str):
@@ -95,31 +95,40 @@ class CommentExtractor:
 
     def extract_text_between_tokens(self, text: str) -> Section:
         """Extract text between start and end tokens."""
-        try:
-            if self.config.start_token is None:
+
+        if self.config.start_token is None:
+            start_idx = 0
+        else:
+            start_token_pos = text.find(self.config.start_token)
+            if start_token_pos < 0:
+                logger.warning(
+                    "Start token not found in text: %s", self.config.start_token
+                )
                 start_idx = 0
             else:
-                start_idx = text.index(self.config.start_token) + len(
-                    self.config.start_token
-                )
-            if self.config.end_token is None:
+                start_idx = start_token_pos + len(self.config.start_token)
+        if self.config.end_token is None:
+            end_idx = len(text)
+        else:
+            end_token_pos = text.find(self.config.end_token, start_idx)
+            if end_token_pos < 0:
+                logger.warning("End token not found in text: %s", self.config.end_token)
                 end_idx = len(text)
             else:
-                end_idx = text.index(self.config.end_token, start_idx)
-            raw_text = text[start_idx:end_idx]
-            lstripped_text = raw_text.lstrip()
-            stripped_text = lstripped_text.rstrip()
-            blank_chars_before_start_token = len(raw_text) - len(lstripped_text)
-            blank_chars_before_end_token = len(lstripped_text) - len(stripped_text)
+                end_idx = end_token_pos
 
-            return Section(
-                start=start_idx + blank_chars_before_start_token,
-                end=end_idx - blank_chars_before_end_token,
-                raw_text=raw_text,
-                stripped_text=stripped_text,
-            )
-        except ValueError:
-            return None
+        raw_text = text[start_idx:end_idx]
+        lstripped_text = raw_text.lstrip()
+        stripped_text = lstripped_text.rstrip()
+        blank_chars_before_start_token = len(raw_text) - len(lstripped_text)
+        blank_chars_before_end_token = len(lstripped_text) - len(stripped_text)
+
+        return Section(
+            start=start_idx + blank_chars_before_start_token,
+            end=end_idx - blank_chars_before_end_token,
+            raw_text=raw_text,
+            stripped_text=stripped_text,
+        )
 
     def _read_docx_file(
         self, file_path: str
@@ -218,7 +227,7 @@ class CommentExtractor:
         return " ".join(comment_text)
 
     def _extract_comments(
-        self, comments_root, comment_id_to_range, section, sub_comments
+        self, comments_root, comment_id_to_range, section_start, sub_comments
     ) -> List[Dict]:
         # Process main comments
         comments = []
@@ -241,7 +250,7 @@ class CommentExtractor:
                 )
                 continue
 
-            highlighted_range.section_start = section.start
+            highlighted_range.section_start = section_start
 
             pos = highlighted_range.get_relative_start()
             if pos < 0:
@@ -277,6 +286,7 @@ class CommentExtractor:
         comment_id_to_range, full_text = self._extract_highlight_ranges(doc_root)
 
         section = self.extract_text_between_tokens(full_text)
+        section_start = section.start
 
         # Get sub-comments (replies)
         sub_comments = self._get_sub_comments(comments_extend_root)
@@ -287,7 +297,7 @@ class CommentExtractor:
         else:
             # Extract comments
             comments = self._extract_comments(
-                comments_root, comment_id_to_range, section, sub_comments
+                comments_root, comment_id_to_range, section_start, sub_comments
             )
 
         return comments, section
