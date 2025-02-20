@@ -32,8 +32,8 @@ def process_folder(
                     output_path = formatter.save(result, output_folder, filename)
                     logger.info("Generated %s: %s", fmt.upper(), output_path)
 
-        if DEBUG:
-            break
+            if DEBUG:
+                break
 
 
 def main():
