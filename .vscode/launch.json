@@ -11,11 +11,11 @@
             "program": "main.py",
             "console": "integratedTerminal",
             "args": [
-                "--input_folder", "data/input/samples",
-                "--output_folder", "data/output",
+                "--input_folder", "data/input/teacher_feedback",
+                "--output_folder", "data/output/teacher_feedback_output",
                 "--start_token", "Human feedback:",
                 "--end_token", "Feedback on topic responsiveness:",
-                "--out_formats", "json,xml"
+                "--out_formats", "json,xml,html"
             ]
         },
         {
