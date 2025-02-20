@@ -85,7 +85,7 @@ class HtmlFormatter(BaseFormatter):
                 border-radius: 4px;
                 position: absolute;
                 z-index: 1;
-                width: 200px;
+                width: 300px;
                 font-size: 14px;
                 bottom: 100%;
                 left: 50%;
