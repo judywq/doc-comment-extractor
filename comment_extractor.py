@@ -5,6 +5,7 @@ import logging
 from typing import Dict, List, Optional
 from xml.etree import ElementTree
 from setting import (
+    ESSAY_PROMPT_KEY,
     ESSAY_TEXT_KEY,
     COMMENTS_KEY,
     COMMENT_ID_KEY,
@@ -77,8 +78,16 @@ class Section:
 
 class ExtractConfig:
     def __init__(
-        self, fb_start_token=None, fb_end_token=None, include_author=False, include_date=False
+        self, 
+        prompt_start_token=None,
+        prompt_end_token=None, 
+        fb_start_token=None, 
+        fb_end_token=None, 
+        include_author=False, 
+        include_date=False
     ):
+        self.prompt_start_token = prompt_start_token
+        self.prompt_end_token = prompt_end_token
         self.fb_start_token = fb_start_token
         self.fb_end_token = fb_end_token
         self.include_author = include_author
@@ -95,26 +104,26 @@ class CommentExtractor:
         }
         self.new_line = "\n"
 
-    def extract_text_between_tokens(self, text: str) -> Section:
+    def extract_text_between_tokens(self, text: str, start_token: str|None, end_token: str|None) -> Section:
         """Extract text between start and end tokens."""
 
-        if self.config.fb_start_token is None:
+        if start_token is None:
             start_idx = 0
         else:
-            start_token_pos = text.find(self.config.fb_start_token)
+            start_token_pos = text.find(start_token)
             if start_token_pos < 0:
                 logger.warning(
-                    "Start token not found in text: %s", self.config.fb_start_token
+                    "Start token not found in text: %s", start_token
                 )
                 start_idx = 0
             else:
-                start_idx = start_token_pos + len(self.config.fb_start_token)
-        if self.config.fb_end_token is None:
+                start_idx = start_token_pos + len(start_token)
+        if end_token is None:
             end_idx = len(text)
         else:
-            end_token_pos = text.find(self.config.fb_end_token, start_idx)
+            end_token_pos = text.find(end_token, start_idx)
             if end_token_pos < 0:
-                logger.warning("End token not found in text: %s", self.config.fb_end_token)
+                logger.warning("End token not found in text: %s", end_token)
                 end_idx = len(text)
             else:
                 end_idx = end_token_pos
@@ -279,7 +288,7 @@ class CommentExtractor:
             )
         return comments
 
-    def extract_comments_from_docx(self, docx_path: str) -> tuple[List[Dict], Section]:
+    def extract_comments_from_docx(self, docx_path: str) -> tuple[List[Dict], Section, Section]:
         """Extract comments directly from the Word document's XML structure."""
         # Read XML files
         comments_root, comments_extend_root, doc_root = self._read_docx_file(docx_path)
@@ -287,8 +296,11 @@ class CommentExtractor:
         # Extract comment ranges and their text
         comment_id_to_range, full_text = self._extract_highlight_ranges(doc_root)
 
-        section = self.extract_text_between_tokens(full_text)
-        section_start = section.start
+        fb_section = self.extract_text_between_tokens(full_text, self.config.fb_start_token, self.config.fb_end_token)
+        section_start = fb_section.start
+
+        prompt_section = self.extract_text_between_tokens(full_text, self.config.prompt_start_token, self.config.prompt_end_token)
+        prompt_start = prompt_section.start
 
         # Get sub-comments (replies)
         sub_comments = self._get_sub_comments(comments_extend_root)
@@ -302,19 +314,21 @@ class CommentExtractor:
                 comments_root, comment_id_to_range, section_start, sub_comments
             )
 
-        return comments, section
+        return comments, fb_section, prompt_section
 
     def process_document(self, file_path: str) -> dict[str, List[Dict]]:
         """Process a single document and return the JSON structure."""
-        result = {ESSAY_TEXT_KEY: None, COMMENTS_KEY: []}
+        result = {ESSAY_PROMPT_KEY: None, ESSAY_TEXT_KEY: None, COMMENTS_KEY: []}
         try:
             # Process comments
-            comments, section = self.extract_comments_from_docx(file_path)
-            text = section.stripped_text if section else ""
+            comments, fb_section, prompt_section = self.extract_comments_from_docx(file_path)
+            prompt_text = prompt_section.stripped_text if prompt_section else ""
+            text = fb_section.stripped_text if fb_section else ""
             if not text:
                 logger.warning("Could not find tokens in %s", file_path)
                 return result
 
+            result[ESSAY_PROMPT_KEY] = prompt_text
             result[ESSAY_TEXT_KEY] = text
             result[COMMENTS_KEY] = comments
             return result

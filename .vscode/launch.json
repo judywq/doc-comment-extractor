@@ -13,6 +13,8 @@
             "args": [
                 "--input_folder", "data/input/teacher_feedback",
                 "--output_folder", "data/output/teacher_feedback_output",
+                "--prompt_start_token", "Essay prompt:",
+                "--prompt_end_token", "Original writing:",
                 "--fb_start_token", "Human feedback:",
                 "--fb_end_token", "Feedback on topic responsiveness:",
                 "--out_formats", "json,xml,html"

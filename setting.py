@@ -1,5 +1,6 @@
 # JSON key names
-ESSAY_TEXT_KEY = "text"
+ESSAY_PROMPT_KEY = "essay_prompt"
+ESSAY_TEXT_KEY = "essay_text"
 COMMENTS_KEY = "comments"
 
 # Comment field keys

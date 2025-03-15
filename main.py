@@ -40,6 +40,8 @@ def main():
     parser = argparse.ArgumentParser(description="Extract comments from Word documents")
     parser.add_argument("--input_folder", help="Folder containing Word documents")
     parser.add_argument("--output_folder", help="Folder to save output files")
+    parser.add_argument("--prompt_start_token", help="Start token for essay prompt extraction")
+    parser.add_argument("--prompt_end_token", help="End token for essay prompt extraction")
     parser.add_argument("--fb_start_token", help="Start token for feedback extraction")
     parser.add_argument("--fb_end_token", help="End token for feedback extraction")
     parser.add_argument(
@@ -72,6 +74,8 @@ def main():
         )
 
     config = ExtractConfig(
+        prompt_start_token=args.prompt_start_token,
+        prompt_end_token=args.prompt_end_token,
         fb_start_token=args.fb_start_token,
         fb_end_token=args.fb_end_token,
         include_author=args.author,
