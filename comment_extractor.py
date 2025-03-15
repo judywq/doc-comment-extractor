@@ -77,10 +77,10 @@ class Section:
 
 class ExtractConfig:
     def __init__(
-        self, start_token=None, end_token=None, include_author=False, include_date=False
+        self, fb_start_token=None, fb_end_token=None, include_author=False, include_date=False
     ):
-        self.start_token = start_token
-        self.end_token = end_token
+        self.fb_start_token = fb_start_token
+        self.fb_end_token = fb_end_token
         self.include_author = include_author
         self.include_date = include_date
 
@@ -98,23 +98,23 @@ class CommentExtractor:
     def extract_text_between_tokens(self, text: str) -> Section:
         """Extract text between start and end tokens."""
 
-        if self.config.start_token is None:
+        if self.config.fb_start_token is None:
             start_idx = 0
         else:
-            start_token_pos = text.find(self.config.start_token)
+            start_token_pos = text.find(self.config.fb_start_token)
             if start_token_pos < 0:
                 logger.warning(
-                    "Start token not found in text: %s", self.config.start_token
+                    "Start token not found in text: %s", self.config.fb_start_token
                 )
                 start_idx = 0
             else:
-                start_idx = start_token_pos + len(self.config.start_token)
-        if self.config.end_token is None:
+                start_idx = start_token_pos + len(self.config.fb_start_token)
+        if self.config.fb_end_token is None:
             end_idx = len(text)
         else:
-            end_token_pos = text.find(self.config.end_token, start_idx)
+            end_token_pos = text.find(self.config.fb_end_token, start_idx)
             if end_token_pos < 0:
-                logger.warning("End token not found in text: %s", self.config.end_token)
+                logger.warning("End token not found in text: %s", self.config.fb_end_token)
                 end_idx = len(text)
             else:
                 end_idx = end_token_pos
