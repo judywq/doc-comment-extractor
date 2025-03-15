@@ -3,6 +3,7 @@ ESSAY_TEXT_KEY = "text"
 COMMENTS_KEY = "comments"
 
 # Comment field keys
+COMMENT_ID_KEY = "id"
 COMMENT_START_KEY = "start"
 COMMENT_END_KEY = "end"
 COMMENT_TEXT_KEY = "data"

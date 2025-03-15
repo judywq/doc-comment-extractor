@@ -7,6 +7,7 @@ from xml.etree import ElementTree
 from setting import (
     ESSAY_TEXT_KEY,
     COMMENTS_KEY,
+    COMMENT_ID_KEY,
     COMMENT_START_KEY,
     COMMENT_END_KEY,
     COMMENT_TEXT_KEY,
@@ -34,6 +35,7 @@ class Comment:
         self, include_author: bool = False, include_date: bool = False
     ) -> Dict:
         d = {
+            COMMENT_ID_KEY: self.id,
             COMMENT_START_KEY: self.start,
             COMMENT_END_KEY: self.end,
             HIGHLIGHTED_TEXT_KEY: self.highlighted_text,
@@ -260,7 +262,7 @@ class CommentExtractor:
                 continue
 
             comment = Comment(
-                id=comment_id,
+                id=int(comment_id),
                 para_id=para_id,
                 para_id_parent=None,
                 author=comment_node.get(f"{{{self.namespaces['w']}}}author", ""),
