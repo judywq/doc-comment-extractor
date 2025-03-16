@@ -2,6 +2,7 @@
 ESSAY_PROMPT_KEY = "essay_prompt"
 ESSAY_TEXT_KEY = "essay_text"
 COMMENTS_KEY = "comments"
+GENERAL_FEEDBACK_KEY = "general_feedbacks"
 
 # Comment field keys
 COMMENT_ID_KEY = "id"

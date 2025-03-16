@@ -3,11 +3,13 @@ from datetime import datetime
 import zipfile
 import logging
 from typing import Dict, List, Optional
+from docx.api import Document
 from xml.etree import ElementTree
 from setting import (
     ESSAY_PROMPT_KEY,
     ESSAY_TEXT_KEY,
     COMMENTS_KEY,
+    GENERAL_FEEDBACK_KEY,
     COMMENT_ID_KEY,
     COMMENT_START_KEY,
     COMMENT_END_KEY,
@@ -315,6 +317,31 @@ class CommentExtractor:
             )
 
         return comments, fb_section, prompt_section
+    
+    def extract_table(self, input_file: str) -> List[Dict]:
+        """Extract table from the document."""
+        name_mapping = {
+            "Item": "item",
+            "Evaluation": "evaluation",
+            "Optional comments": "optional_comments",
+        }
+        data = []
+
+        document = Document(input_file)
+        if len(document.tables) == 0:
+            logger.error("No table found in the document")
+            return data
+        table = document.tables[0]
+        keys = None
+        for i, row in enumerate(table.rows):
+            text = (cell.text.strip() for cell in row.cells)
+
+            if i == 0:
+                keys = tuple(name_mapping.get(cell.text.strip(), cell.text.strip()) for cell in row.cells)
+                continue
+            row_data = dict(zip(keys, text))
+            data.append(row_data)
+        return data
 
     def process_document(self, file_path: str) -> dict[str, List[Dict]]:
         """Process a single document and return the JSON structure."""
@@ -322,6 +349,7 @@ class CommentExtractor:
         try:
             # Process comments
             comments, fb_section, prompt_section = self.extract_comments_from_docx(file_path)
+            general_feedbacks = self.extract_table(file_path)
             prompt_text = prompt_section.stripped_text if prompt_section else ""
             text = fb_section.stripped_text if fb_section else ""
             if not text:
@@ -331,6 +359,7 @@ class CommentExtractor:
             result[ESSAY_PROMPT_KEY] = prompt_text
             result[ESSAY_TEXT_KEY] = text
             result[COMMENTS_KEY] = comments
+            result[GENERAL_FEEDBACK_KEY] = general_feedbacks
             return result
 
         except Exception as e:

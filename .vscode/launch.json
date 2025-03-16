@@ -1,36 +1,53 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "With section headers",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "main.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--input_folder", "data/input/teacher_feedback",
-                "--output_folder", "data/output/teacher_feedback_output",
-                "--prompt_start_token", "Essay prompt:",
-                "--prompt_end_token", "Original writing:",
-                "--fb_start_token", "Human feedback:",
-                "--fb_end_token", "Feedback on topic responsiveness:",
-                "--out_formats", "json,xml,html"
-            ]
-        },
-        {
-            "name": "Without section headers",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "main.py",
-            "console": "integratedTerminal",
-            "args": [
-                "--input_folder", "data/input/minimal",
-                "--output_folder", "data/output",
-                "--out_formats", "json,xml"
-            ]
-        }
-    ]
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python Debugger: Current File",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "With section headers",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "main.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--input_folder",
+        "data/input/teacher_feedback",
+        "--output_folder",
+        "data/output/teacher_feedback_output",
+        "--prompt_start_token",
+        "Essay prompt:",
+        "--prompt_end_token",
+        "Original writing:",
+        "--fb_start_token",
+        "Human feedback:",
+        "--fb_end_token",
+        "Feedback on topic responsiveness:",
+        "--out_formats",
+        "json,xml,html"
+      ]
+    },
+    {
+      "name": "Without section headers",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "main.py",
+      "console": "integratedTerminal",
+      "args": [
+        "--input_folder",
+        "data/input/minimal",
+        "--output_folder",
+        "data/output",
+        "--out_formats",
+        "json,xml"
+      ]
+    }
+  ]
 }
